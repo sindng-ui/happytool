@@ -146,7 +146,7 @@ const App: React.FC = () => {
           onReorderTools={setToolOrder}
         />
 
-        <main className="flex-1 overflow-hidden relative bg-slate-950">
+        <main className="flex-1 overflow-hidden relative bg-slate-950 min-h-0">
           {!isSettingsLoaded ? (
             <div className="flex h-full items-center justify-center text-slate-500">Loading settings...</div>
           ) : (
