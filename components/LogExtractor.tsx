@@ -51,6 +51,7 @@ interface LogViewerPaneProps {
 
 export interface LogViewerHandle {
     scrollBy: (deltaY: number) => void;
+    scrollTo: (scrollTop: number) => void;
     jumpToNextBookmark: () => void;
     jumpToPrevBookmark: () => void;
 }
@@ -81,32 +82,51 @@ const LogViewerPane = React.memo(forwardRef<LogViewerHandle, LogViewerPaneProps>
         scrollBy: (deltaY: number) => {
             if (scrollViewportRef.current) scrollViewportRef.current.scrollTop += deltaY;
         },
+        scrollTo: (top: number) => {
+            if (scrollViewportRef.current) scrollViewportRef.current.scrollTop = top;
+        },
         jumpToNextBookmark: () => {
-            const currentIdx = Math.floor((scrollTop as number) / ROW_HEIGHT);
+            const viewportTopIdx = Math.floor((scrollViewportRef.current?.scrollTop || 0) / ROW_HEIGHT);
+            const currentIdx = activeLineIndex >= 0 ? activeLineIndex : viewportTopIdx;
+
             const sorted = Array.from(bookmarks).sort((a: number, b: number) => a - b);
             const next = sorted.find((b: number) => b > currentIdx);
 
             const centerOffset = Math.max(0, (viewportHeight / 2) - (ROW_HEIGHT / 2));
+            let target = -1;
 
-            if (next !== undefined && scrollViewportRef.current) {
-                scrollViewportRef.current.scrollTop = Math.max(0, (next * ROW_HEIGHT) - centerOffset);
-            } else if (sorted.length > 0 && scrollViewportRef.current) {
-                // Wrap around to first bookmark
-                scrollViewportRef.current.scrollTop = Math.max(0, (sorted[0] * ROW_HEIGHT) - centerOffset);
+            if (next !== undefined) {
+                target = next;
+            } else if (sorted.length > 0) {
+                target = sorted[0]; // Wrap
+            }
+
+            if (target !== -1 && scrollViewportRef.current) {
+                scrollViewportRef.current.scrollTop = Math.max(0, (target * ROW_HEIGHT) - centerOffset);
+                if (onLineClick) onLineClick(target);
             }
         },
         jumpToPrevBookmark: () => {
-            const currentIdx = Math.floor(scrollTop / ROW_HEIGHT);
+            const viewportTopIdx = Math.floor((scrollViewportRef.current?.scrollTop || 0) / ROW_HEIGHT);
+            const currentIdx = activeLineIndex >= 0 ? activeLineIndex : viewportTopIdx;
+            // Since we want strict less than, finding Prev from current bookmark (at activeLineIndex) works correctly.
+            // But if we are scrolled slightly up/down, activeLineIndex clamps it.
+
             const sorted = Array.from(bookmarks).sort((a: number, b: number) => b - a); // Descending
             const prev = sorted.find((b: number) => b < currentIdx);
 
             const centerOffset = Math.max(0, (viewportHeight / 2) - (ROW_HEIGHT / 2));
+            let target = -1;
 
-            if (prev !== undefined && scrollViewportRef.current) {
-                scrollViewportRef.current.scrollTop = Math.max(0, (prev * ROW_HEIGHT) - centerOffset);
-            } else if (sorted.length > 0 && scrollViewportRef.current) {
-                // Wrap around to last bookmark
-                scrollViewportRef.current.scrollTop = Math.max(0, (sorted[0] * ROW_HEIGHT) - centerOffset);
+            if (prev !== undefined) {
+                target = prev;
+            } else if (sorted.length > 0) {
+                target = sorted[0]; // Wrap (last item since sorted descending)
+            }
+
+            if (target !== -1 && scrollViewportRef.current) {
+                scrollViewportRef.current.scrollTop = Math.max(0, (target * ROW_HEIGHT) - centerOffset);
+                if (onLineClick) onLineClick(target);
             }
         }
     }));
@@ -527,25 +547,25 @@ const LogExtractor: React.FC<LogExtractorProps> = ({ rules, onUpdateRules, onExp
     // Global Keyboard Event Listener for Bookmark Navigation
     useEffect(() => {
         const handleGlobalKeyDown = (e: KeyboardEvent) => {
-            // F3: Previous bookmark (left pane or single pane)
-            if (e.key === 'F3' && !e.shiftKey) {
+            // F3: Previous bookmark
+            if (e.key === 'F3') {
                 e.preventDefault();
-                leftViewerRef.current?.jumpToPrevBookmark();
+                if (e.shiftKey && isDualView) {
+                    rightViewerRef.current?.jumpToPrevBookmark();
+                } else {
+                    // Support Shift+F3 in single view or just F3
+                    leftViewerRef.current?.jumpToPrevBookmark();
+                }
             }
-            // F4: Next bookmark (left pane or single pane)
-            if (e.key === 'F4' && !e.shiftKey) {
+            // F4: Next bookmark
+            if (e.key === 'F4') {
                 e.preventDefault();
-                leftViewerRef.current?.jumpToNextBookmark();
-            }
-            // Shift+F3: Previous bookmark (right pane in split mode)
-            if (e.key === 'F3' && e.shiftKey && isDualView) {
-                e.preventDefault();
-                rightViewerRef.current?.jumpToPrevBookmark();
-            }
-            // Shift+F4: Next bookmark (right pane in split mode)
-            if (e.key === 'F4' && e.shiftKey && isDualView) {
-                e.preventDefault();
-                rightViewerRef.current?.jumpToNextBookmark();
+                if (e.shiftKey && isDualView) {
+                    rightViewerRef.current?.jumpToNextBookmark();
+                } else {
+                    // Support Shift+F4 in single view or just F4
+                    leftViewerRef.current?.jumpToNextBookmark();
+                }
             }
             // ESC: Close raw context view (works globally)
             if (e.key === 'Escape') {
@@ -883,7 +903,7 @@ const LogExtractor: React.FC<LogExtractorProps> = ({ rules, onUpdateRules, onExp
                 if (rawViewerRef.current && lines[0].lineNum > 0) {
                     const targetIndex = lines[0].lineNum - 1;
                     const scrollTop = targetIndex * 24; // ROW_HEIGHT = 24
-                    rawViewerRef.current.scrollBy(scrollTop);
+                    rawViewerRef.current.scrollTo(scrollTop);
                 }
             }, 100);
         }
